@@ -2,18 +2,20 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/bot.js",
-      "use": "@vercel/node",
-      "config": { 
-        "includeFiles": ["node_modules/**"]
-      }
+      "src": "api/telegram.js",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
     {
-      "src": "/api/bot",
-      "dest": "/api/bot.js",
-      "methods": ["POST", "GET"]
+      "src": "/api/telegram",
+      "dest": "/api/telegram.js",
+      "methods": ["POST"]
+    },
+    {
+      "src": "/",
+      "dest": "/api/telegram.js",
+      "methods": ["GET"]
     }
   ]
 }
