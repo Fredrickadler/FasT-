@@ -2,15 +2,15 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/telegram.js",
+      "src": "api/transfer.js",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
-      "src": "/api/telegram",
+      "src": "/api/transfer",
       "methods": ["POST"],
-      "dest": "/api/telegram.js"
+      "dest": "/api/transfer.js"
     }
   ]
 }
