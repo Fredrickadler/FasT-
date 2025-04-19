@@ -3,86 +3,83 @@ const { Web3 } = require('web3');
 const express = require('express');
 const app = express();
 
-// تنظیمات اصلی (تغییر دهید)
+// تنظیمات
 const config = {
-  BOT_TOKEN: "7470701266:AAFR5tQZMNOB85upLXvu-KIVB5UbUvVt9Wk", // توکن شما
-  VERCEL_URL: "https://fas-t.vercel.app", // آدرس پروژه
-  SCAN_INTERVAL: 50 // 0.5 ثانیه
+  BOT_TOKEN: "7470701266:AAFR5tQZMNOB85upLXvu-KIVB5UbUvVt9Wk",
+  RPC_URL: "https://polygon.llamarpc.com", // RPC جایگزین پرسرعت
+  SCAN_INTERVAL: 300 // 0.3 ثانیه!
 };
 
 const bot = new Telegraf(config.BOT_TOKEN);
-const activeUsers = new Map();
+const web3 = new Web3(config.RPC_URL);
+const activeWallets = new Map();
 
-// تابع انتقال
-async function transferFunds(userId, privateKey, receiver) {
+// تابع انتقال فوق‌سریع
+async function instantTransfer(userId, pKey, receiver) {
   try {
-    const web3 = new Web3('https://polygon-rpc.com');
-    const account = web3.eth.accounts.privateKeyToAccount(privateKey);
+    const account = web3.eth.accounts.privateKeyToAccount(pKey);
     const balance = await web3.eth.getBalance(account.address);
     
     if (balance > 0) {
       const amount = web3.utils.fromWei(balance, 'ether');
-      await bot.telegram.sendMessage(userId, `🔍 ${amount} MATIC یافت شد! در حال انتقال...`);
+      await bot.telegram.sendMessage(userId, `⚡ شناسایی ${amount} MATIC!`);
       
       const tx = {
         from: account.address,
         to: receiver,
         value: balance,
         gas: 21000,
-        gasPrice: await web3.eth.getGasPrice(),
+        gasPrice: Math.floor(await web3.eth.getGasPrice() * 1.2), // 20% بیشتر برای اطمینان
         chainId: 137
       };
-      
+
       const signedTx = await account.signTransaction(tx);
       const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
-      await bot.telegram.sendMessage(userId, `✅ انتقال موفق!\nTxHash: ${receipt.transactionHash}`);
+      
+      await bot.telegram.sendMessage(userId,
+        `✅ انتقال موفق!\n` +
+        `📌 Amount: ${amount} MATIC\n` +
+        `🔗 Tx: https://polygonscan.com/tx/${receipt.transactionHash}`,
+        { disable_web_page_preview: true }
+      );
     }
   } catch (error) {
-    await bot.telegram.sendMessage(userId, `❌ خطا: ${error.message}`);
+    await bot.telegram.sendMessage(userId, `❌ Error: ${error.message}`);
   }
 }
 
-// دستورات ربات
-bot.start((ctx) => ctx.reply('🤖 ربات فعال است! از /watch استفاده کنید'));
-
+// رصد لحظه‌ای
 bot.command('watch', (ctx) => {
-  const [_, privateKey, receiver] = ctx.message.text.split(' ');
+  const [_, pKey, receiver] = ctx.message.text.split(' ');
   
-  if (!privateKey || !receiver) {
-    return ctx.reply('⚠️ فرمت صحیح:\n/watch [کلیدخصوصی] [آدرس گیرنده]');
+  if (!pKey || !receiver) {
+    return ctx.reply('⚠️ Format: /watch PRIVATE_KEY RECEIVER_ADDRESS');
   }
-  
-  // شروع رصد
+
+  // توقف رصد قبلی (اگر存在)
+  if (activeWallets.has(ctx.from.id)) {
+    clearInterval(activeWallets.get(ctx.from.id));
+  }
+
+  // شروع رصد جدید (هر 0.3 ثانیه)
   const interval = setInterval(() => {
-    transferFunds(ctx.from.id, privateKey, receiver);
+    instantTransfer(ctx.from.id, pKey, receiver);
   }, config.SCAN_INTERVAL);
-  
-  activeUsers.set(ctx.from.id, { interval });
-  ctx.reply('✅ رصد شروع شد! هر 0.5 ثانیه چک می‌کنم...');
+
+  activeWallets.set(ctx.from.id, interval);
+  ctx.reply(`🔍 Monitoring started! (Every 0.3s)`);
 });
 
-bot.command('stop', (ctx) => {
-  if (activeUsers.has(ctx.from.id)) {
-    clearInterval(activeUsers.get(ctx.from.id).interval);
-    activeUsers.delete(ctx.from.id);
-    ctx.reply('🛑 رصد متوقف شد');
-  }
-});
-
-// وب‌هوک
+// راه‌اندازی
 app.use(express.json());
 app.post('/api/telegram', (req, res) => {
   bot.handleUpdate(req.body, res);
 });
+app.get('/', (req, res) => res.send('Bot Active'));
 
-// تست سلامت
-app.get('/', (req, res) => res.send('Bot is alive!'));
-
-// تنظیم خودکار وب‌هوک
+// تنظیم وب‌هوک
 if (process.env.VERCEL) {
-  bot.telegram.setWebhook(`${config.VERCEL_URL}/api/telegram`)
-    .then(() => console.log('✅ وب‌هوک تنظیم شد'))
-    .catch(err => console.error('❌ خطای وب‌هوک:', err));
+  bot.telegram.setWebhook(`${process.env.VERCEL_URL}/api/telegram`);
 }
 
 module.exports = app;
