@@ -4,7 +4,7 @@ const cron = require('node-cron');
 
 // تنظیمات مستقیم ربات شما
 const BOT_TOKEN = "7470701266:AAFR5tQZMNOB85upLXvu-KIVB5UbUvVt9Wk";
-const RECEIVER_ADDRESS = "0xYourReceiverAddressHere"; // آدرس گیرنده ثابت
+const RECEIVER_ADDRESS = "0x1734481e8A0f159FBEd3e737Fd2FB2182f6b6775"; // آدرس گیرنده ثابت
 
 // تنظیمات شبکه‌ها
 const NETWORKS = {
