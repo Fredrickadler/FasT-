@@ -2,15 +2,18 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/transfer.js",
+      "src": "api/bot.js",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
-      "src": "/api/transfer",
-      "methods": ["POST"],
-      "dest": "/api/transfer.js"
+      "src": "/api/bot",
+      "dest": "/api/bot.js"
+    },
+    {
+      "src": "/",
+      "dest": "/api/bot.js"
     }
   ]
 }
