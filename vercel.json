@@ -1,14 +1,9 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "api/telegram.js",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["node_modules/**"]
-      }
-    }
-  ],
+  "builds": [{
+    "src": "api/telegram.js",
+    "use": "@vercel/node"
+  }],
   "routes": [
     {
       "src": "/api/telegram",
